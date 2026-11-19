@@ -1,0 +1,41 @@
+{
+  "name": "bubble-tasks",
+  "productName": "Bubble Tasks",
+  "version": "0.1.0",
+  "description": "デスクトップに浮かぶ泡のタスク管理",
+  "author": "うらきち",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist:win": "electron-builder --win --publish never",
+    "dist:mac": "electron-builder --mac --publish never"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.0"
+  },
+  "devDependencies": {
+    "electron": "^45.0.0",
+    "electron-builder": "^26.0.0"
+  },
+  "build": {
+    "appId": "com.urakichi.bubbletasks",
+    "productName": "Bubble Tasks",
+    "artifactName": "Bubble-Tasks-${version}.${ext}",
+    "files": ["main.js", "preload.js", "index.html", "input.html", "icon.ico", "iconTemplate*.png"],
+    "publish": { "provider": "github", "releaseType": "release" },
+    "win": {
+      "target": "nsis",
+      "icon": "icon.ico"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "artifactName": "Bubble-Tasks-Setup-${version}.${ext}"
+    },
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.productivity",
+      "identity": "-"
+    }
+  }
+}

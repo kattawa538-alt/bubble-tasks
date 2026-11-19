@@ -1,0 +1,840 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bubble Desktop</title>
+  <style>
+    body {
+      margin: 0;
+      height: 100vh;
+      overflow: hidden;
+      background: transparent;    /* デスクトップが透けて見えるように透明に */
+      --bubble-size: 180px;       /* バブルの大きさ（設定で変わる）*/
+    }
+
+    .bubble {
+      position: absolute;   /* 好きな位置に置けるようにする（left / top で動かす） */
+      cursor: grab;         /* マウスを乗せると「つかめる手」の形に */
+
+      /* 中のタスク文を中央にそろえる設定 */
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      user-select: none;        /* ドラッグ中に文字が選択されないように */
+
+      /* 文字の見た目 */
+      color: #ffffff;
+      font-family: -apple-system, "Segoe UI", "Yu Gothic UI", Meiryo, system-ui, sans-serif;
+      font-weight: 600;
+      font-size: 17px;
+      line-height: 1.3;
+      text-shadow: 0 1px 6px rgba(0,0,0,0.5);
+
+      width: var(--bubble-size);
+      height: var(--bubble-size);
+      padding: 18px;
+      box-sizing: border-box;
+      border-radius: 50%;
+      background:
+        radial-gradient(
+          circle at 30% 25%,
+          rgba(255,255,255,0.95),
+          rgba(180,220,255,0.25) 18%,
+          transparent 45%
+        ),
+        radial-gradient(
+          circle at 70% 75%,
+          rgba(255,100,220,0.45),
+          rgba(80,180,255,0.25) 45%,
+          rgba(255,255,255,0.08) 70%
+        );
+
+      border: 1px solid rgba(255,255,255,0.6);
+
+      box-shadow:
+        inset -12px -12px 30px rgba(150,100,255,0.15),
+        inset 8px 8px 20px rgba(255,255,255,0.15),
+        0 0 35px rgba(130,160,255,0.15);
+
+      animation: float 4s ease-in-out infinite;
+    }
+
+    /* 泡の中：タスク文と締切日 */
+    .b-text { pointer-events: none; }
+    .b-due {
+      pointer-events: none;
+      margin-top: 4px;
+      font-size: 12px;
+      font-weight: 500;
+      color: rgba(255,255,255,0.9);
+      background: rgba(0,0,0,0.25);
+      padding: 1px 8px;
+      border-radius: 10px;
+    }
+    .b-due.overdue {             /* 締切を過ぎたものは赤っぽく */
+      color: #ffdede;
+      background: rgba(220,40,40,0.5);
+    }
+
+    /* 泡の上につく印（重要⭐・すぐ終わる⏱️）。上の中央に並べる。 */
+    .b-badges {
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      display: flex;
+      justify-content: center;
+      gap: 4px;
+      font-size: 20px;
+      pointer-events: none;
+      filter: drop-shadow(0 1px 2px rgba(0,0,0,0.5));
+    }
+    /* 緊急🏃 は右上の角に。 */
+    .b-urgent {
+      position: absolute;
+      top: 4px; right: 10px;
+      font-size: 20px;
+      pointer-events: none;
+      filter: drop-shadow(0 1px 2px rgba(0,0,0,0.5));
+    }
+    /* 属性アイコン（シルエット）。泡の上では濃いグレー、暗いパネル上では明るい色。 */
+    .pic { display: inline-block; vertical-align: middle; }
+    .b-badges .pic, .b-urgent .pic {
+      fill: #44484f;
+      filter: drop-shadow(0 1px 1px rgba(255,255,255,0.45));
+    }
+    .cp-item .pic, .ep-flag .pic { fill: rgba(255,255,255,0.82); vertical-align: -3px; }
+
+    /* 編集の鉛筆✏️ は左上の角。クリックした泡にだけ出す。 */
+    .b-edit {
+      position: absolute;
+      top: 2px; left: 8px;
+      width: 26px; height: 26px;
+      border-radius: 50%;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: rgba(20,22,35,0.88);
+      border: 1px solid rgba(255,255,255,0.45);
+      font-size: 14px;
+      cursor: pointer;
+    }
+    /* 右下のリサイズつまみ（Googleスライドの角みたいに引っぱって大きさを変える）*/
+    .b-resize {
+      position: absolute;
+      right: 12%; bottom: 12%;
+      width: 20px; height: 20px;
+      border-radius: 50%;
+      display: none;
+      background: rgba(20,22,35,0.88);
+      border: 1px solid rgba(255,255,255,0.6);
+      cursor: nwse-resize;
+    }
+    /* クリックで選んだ泡にだけ、鉛筆とつまみを出す */
+    .bubble.selected .b-edit,
+    .bubble.selected .b-resize { display: flex; }
+    .b-edit:hover,
+    .b-resize:hover { background: rgba(60,120,200,0.95); }
+
+    @keyframes float {
+      0%, 100% {
+        transform: translateY(0) rotate(0deg);
+      }
+      50% {
+        transform: translateY(-35px) rotate(8deg);
+      }
+    }
+
+    /* ドラッグ中はフワフワ浮くアニメを止める（カーソルにピタッと付くように） */
+    .bubble.dragging {
+      animation: none;
+      cursor: grabbing;
+    }
+
+    /* 「揺れOFF」のとき：すべてのバブルのアニメを止める */
+    body.no-float .bubble {
+      animation: none;
+    }
+
+    /* ===== 画面下の仕分けフォルダ（ドラッグ中だけ出す）===== */
+    #folderBar {
+      position: fixed;
+      left: 0; right: 0; bottom: 0;
+      display: none;            /* 普段は隠す */
+      justify-content: center;
+      gap: 12px;
+      padding: 18px;
+      z-index: 50;
+      pointer-events: none;     /* バー自体はクリックを奪わない（判定はJSでやる）*/
+    }
+    #folderBar.show { display: flex; }
+    .folder {
+      width: 112px;
+      height: 76px;
+      border-radius: 16px;
+      background: rgba(20,22,35,0.55);
+      border: 2px dashed rgba(255,255,255,0.45);
+      color: #fff;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      font-family: -apple-system, "Segoe UI", "Yu Gothic UI", Meiryo, system-ui, sans-serif;
+      font-size: 12px;
+      text-align: center;
+      line-height: 1.2;
+      -webkit-backdrop-filter: blur(8px);
+      backdrop-filter: blur(8px);
+      transition: transform 0.1s, background 0.1s, border-color 0.1s;
+    }
+    .folder .emoji { font-size: 24px; }
+    .folder.hover {              /* 泡を重ねている間、光らせる */
+      border-color: #7fd0ff;
+      border-style: solid;
+      background: rgba(60,120,200,0.65);
+      transform: scale(1.08) translateY(-6px);
+    }
+
+    /* ===== モーダル（完了一覧／編集）共通 ===== */
+    #completedPanel, #editPanel {
+      position: fixed; inset: 0;
+      display: none;
+      background: rgba(8,10,18,0.5);
+      -webkit-backdrop-filter: blur(3px);
+      backdrop-filter: blur(3px);
+      z-index: 100;
+      font-family: -apple-system, "Segoe UI", "Yu Gothic UI", Meiryo, system-ui, sans-serif;
+    }
+    #completedPanel.show, #editPanel.show { display: block; }
+    .cp-card {
+      position: absolute;
+      top: 44px; left: 50%;
+      transform: translateX(-50%);
+      width: 440px;
+      max-width: calc(100vw - 32px);
+      max-height: 80vh;
+      overflow-y: auto;
+      background: rgba(22,24,38,0.98);
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 18px;
+      padding: 20px 22px;
+      color: #fff;
+      box-shadow: 0 24px 60px rgba(0,0,0,0.55);
+    }
+    .cp-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 14px;
+    }
+    .cp-head h2 { font-size: 17px; margin: 0; }
+    .cp-close {
+      cursor: pointer;
+      color: rgba(255,255,255,0.6);
+      font-size: 22px;
+      line-height: 1;
+      padding: 0 4px;
+    }
+    .cp-close:hover { color: #fff; }
+    .cp-group { margin-bottom: 18px; }
+    .cp-group h3 {
+      font-size: 13px;
+      color: #9fd0ff;
+      margin: 0 0 8px;
+      border-bottom: 1px solid rgba(255,255,255,0.12);
+      padding-bottom: 5px;
+    }
+    .cp-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 7px 0;
+      font-size: 14px;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+    .cp-item .t { flex: 1; word-break: break-word; }
+    .cp-item .meta {
+      font-size: 11px;
+      color: rgba(255,255,255,0.45);
+      white-space: nowrap;
+    }
+    .cp-item .meta .due { color: #ffd59f; }
+    .cp-item button {
+      border: none;
+      border-radius: 8px;
+      padding: 4px 9px;
+      font-size: 12px;
+      cursor: pointer;
+      color: #fff;
+      background: rgba(255,255,255,0.12);
+    }
+    .cp-item button:hover { background: rgba(255,255,255,0.25); }
+    .cp-item button.del:hover { background: rgba(220,60,60,0.7); }
+    .cp-empty { color: rgba(255,255,255,0.45); font-size: 14px; padding: 10px 0; }
+
+    /* ===== 編集パネル専用 ===== */
+    .ep-input {
+      width: 100%;
+      box-sizing: border-box;
+      border: none; outline: none;
+      background: rgba(255,255,255,0.1);
+      color: #fff;
+      padding: 10px 14px;
+      border-radius: 10px;
+      font-size: 15px;
+      margin-bottom: 12px;
+    }
+    .ep-row {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 14px;
+      color: rgba(255,255,255,0.85); font-size: 13px;
+    }
+    .ep-row input[type="date"] {
+      border: none; outline: none;
+      background: rgba(255,255,255,0.1); color: #fff;
+      padding: 6px 10px; border-radius: 8px; font-size: 13px; font-family: inherit;
+    }
+    .ep-row input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(1); opacity: 0.7; cursor: pointer; }
+    .ep-flags { display: flex; gap: 8px; margin-bottom: 18px; flex-wrap: wrap; }
+    .ep-flag {
+      flex: 1; min-width: 92px;
+      border: 1px solid rgba(255,255,255,0.2);
+      border-radius: 10px;
+      background: rgba(255,255,255,0.06);
+      color: rgba(255,255,255,0.75);
+      padding: 10px 6px; font-size: 13px; cursor: pointer; font-family: inherit;
+    }
+    .ep-flag.on { background: rgba(100,160,255,0.35); border-color: #7fd0ff; color: #fff; }
+    .ep-actions { display: flex; justify-content: flex-end; }
+    .ep-save {
+      border: none; border-radius: 10px;
+      background: #4a90e2; color: #fff;
+      padding: 10px 22px; font-size: 14px; cursor: pointer; font-family: inherit;
+    }
+    .ep-save:hover { background: #5a9eec; }
+  </style>
+</head>
+<body>
+  <!-- 入力欄は撤去。タスク追加はメニューバーの小窓(input.html)から行う。 -->
+
+  <!-- 画面下に出る仕分けフォルダ（JSが中身を作る） -->
+  <div id="folderBar"></div>
+
+  <!-- 完了したタスク一覧（JSが中身を作る） -->
+  <div id="completedPanel"></div>
+
+  <!-- タスク編集パネル（JSが中身を作る） -->
+  <div id="editPanel"></div>
+
+  <script>
+    // ===== レンダラー側の JavaScript（画面の動きを作る係）=====
+
+    // --- データ（localStorage に保存）---
+
+    // タスク一覧（＝未完了のデータ）。
+    // 1件は { id, text, due, category, important, urgent, quick, left, top }。
+    let tasks = JSON.parse(localStorage.getItem('tasks') || 'null');
+    if (!tasks) {
+      tasks = [
+        // 初めて起動した人向けの「使い方の泡」。触って覚えられるようにする。
+        { id: 1, text: 'ダブルクリックで完了',          left: '140px', top: '160px', quick: true },
+        { id: 2, text: 'つかんで下のフォルダへ',        left: '380px', top: '160px' },
+        { id: 3, text: 'クリック → ✏️ で編集',          left: '620px', top: '160px', important: true },
+      ];
+    }
+
+    // カテゴリ（フォルダの名前）。初回は5個の既定値。あとで変更できるよう保存しておく。
+    let categories = JSON.parse(localStorage.getItem('categories') || 'null')
+      || ['リソース管理', '開発', '本日のtodo', '将来のtodo', 'その他'];
+    localStorage.setItem('categories', JSON.stringify(categories));
+    const defaultEmoji = ['🗂️', '💻', '☀️', '🗓️', '📦'];
+    const emojiFor = (i) => defaultEmoji[i] || '📁';
+
+    // 完了したタスクの保管庫。1件 { id, text, due, category, important, urgent, quick, doneAt }。
+    let done = JSON.parse(localStorage.getItem('done') || '[]');
+
+    function save()     { localStorage.setItem('tasks', JSON.stringify(tasks)); }
+    function saveDone() { localStorage.setItem('done',  JSON.stringify(done)); }
+
+    // --- 日付まわりの小道具 ---
+    function fmtDue(s) {            // '2026-11-20' → '11/20'
+      const [, m, d] = s.split('-');
+      return Number(m) + '/' + Number(d);
+    }
+    function isOverdue(s) {         // 締切が今日より前か？
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      return new Date(s + 'T00:00:00') < today;
+    }
+    function fmtDoneAt(ts) {        // 完了した日時 → 'M/D HH:MM'
+      const d = new Date(ts);
+      const pad = (n) => String(n).padStart(2, '0');
+      return `${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    }
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, (c) =>
+        ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    }
+
+    // --- 属性アイコン（シルエットのピクトグラム）---
+    // 絵文字の代わりに単色SVGを使う。色は .pic の CSS で場所ごとに変える。
+    const ICON_PATHS = {
+      important: 'M12 2l2.9 6.2 6.8.6-5.1 4.5 1.5 6.7L12 17l-6 3.5 1.5-6.7L2.4 8.8l6.8-.6z',
+      urgent: 'M13.49 5.48c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm-3.6 13.9l1-4.4 2.1 2v6h2v-7.5l-2.1-2 .6-3c1.3 1.5 3.3 2.5 5.5 2.5v-2c-1.9 0-3.5-1-4.3-2.4l-1-1.6c-.4-.6-1-1-1.7-1-.3 0-.5.1-.8.1L6.2 6.3v4.7h2V7.6l1.8-.7-1.6 8.1-4.9-1-.4 2 7 1.4z',
+      quick: 'M15 1H9v2h6V1zm-4 13h2V8h-2v6zm8.03-6.61l1.42-1.42c-.43-.51-.9-.99-1.41-1.41l-1.42 1.42C16.07 4.74 14.12 4 12 4c-4.97 0-9 4.03-9 9s4.02 9 9 9 9-4.03 9-9c0-2.12-.74-4.07-1.97-5.61zM12 20c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z',
+      wish: 'M15 3L16.35 7.14L20.71 7.15L17.19 9.71L18.53 13.85L15 11.3L11.47 13.85L12.81 9.71L9.29 7.15L13.65 7.14ZM12 9L14 11L5 20L3 19ZM9.5 8L10.8 9.3L6 15L4.8 14Z',
+    };
+    function iconSVG(name, size = 22) {
+      return `<svg class="pic" viewBox="0 0 24 24" width="${size}" height="${size}"><path d="${ICON_PATHS[name]}"/></svg>`;
+    }
+
+    // --- 状態 ---
+    let dragging = null;     // 今つかんでいる泡（クリック候補も含む）
+    let moved = false;       // 実際に動かしたか（動かさなければ「クリック」扱い）
+    let startX = 0, startY = 0;
+    let offsetX = 0, offsetY = 0;
+    let resizing = null;     // 右下つまみでリサイズ中の情報 { bubble, task, startX, startY, startSize }
+
+    const folderBar = document.getElementById('folderBar');
+    const completedPanel = document.getElementById('completedPanel');
+    const editPanel = document.getElementById('editPanel');
+    let panelOpen = false;   // 完了一覧を開いているか
+    let editOpen = false;    // 編集パネルを開いているか
+
+    // 画面下のフォルダを、カテゴリから作る。
+    function buildFolderBar() {
+      folderBar.innerHTML = '';
+      categories.forEach((name, i) => {
+        const f = document.createElement('div');
+        f.className = 'folder';
+        f.dataset.category = name;
+        f.innerHTML = `<div class="emoji">${emojiFor(i)}</div><div>${escapeHtml(name)}</div>`;
+        folderBar.appendChild(f);
+      });
+    }
+    buildFolderBar();
+
+    // ある座標の下にフォルダがあれば、その要素を返す。
+    function folderAt(x, y) {
+      for (const el of document.querySelectorAll('.folder')) {
+        const r = el.getBoundingClientRect();
+        if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return el;
+      }
+      return null;
+    }
+
+    // クリックした泡だけ「選択」状態にする（鉛筆とリサイズつまみが出る）。
+    function selectBubble(bubbleEl) {
+      document.querySelectorAll('.bubble.selected').forEach(b => b.classList.remove('selected'));
+      if (bubbleEl) bubbleEl.classList.add('selected');
+    }
+
+    // 右下つまみを押したときに、リサイズを開始する。
+    const MIN_SIZE = 90, MAX_SIZE = 320;
+    function startResize(bubble, task, e) {
+      const cur = task.size || parseInt(getComputedStyle(bubble).width) || 180;
+      resizing = { bubble, task, startX: e.clientX, startY: e.clientY, startSize: cur };
+    }
+
+    // 1件のタスクからバブルを1個作る。
+    function createBubble(task) {
+      const bubble = document.createElement('div');
+      bubble.className = 'bubble';
+      bubble._task = task;              // このバブルがどのタスクかを覚えさせる
+      bubble.style.left = task.left;
+      bubble.style.top  = task.top;
+      if (task.size) {                  // この泡だけの大きさ（右下つまみで変えた値）
+        bubble.style.width  = task.size + 'px';
+        bubble.style.height = task.size + 'px';
+      }
+
+      const txt = document.createElement('div');
+      txt.className = 'b-text';
+      txt.textContent = task.text;
+      bubble.appendChild(txt);
+
+      if (task.due) {                   // 締切日があれば小さく表示
+        const due = document.createElement('div');
+        due.className = 'b-due' + (isOverdue(task.due) ? ' overdue' : '');
+        due.textContent = '〜' + fmtDue(task.due);
+        bubble.appendChild(due);
+      }
+
+      // 上の印（重要⭐・すぐ終わる⏱️）
+      const badges = document.createElement('div');
+      badges.className = 'b-badges';
+      if (task.important) badges.insertAdjacentHTML('beforeend', iconSVG('important', 22));
+      if (task.quick)     badges.insertAdjacentHTML('beforeend', iconSVG('quick', 22));
+      if (task.wish)      badges.insertAdjacentHTML('beforeend', iconSVG('wish', 22));
+      bubble.appendChild(badges);
+
+      // 緊急🏃（右上）
+      if (task.urgent) {
+        const u = document.createElement('div');
+        u.className = 'b-urgent';
+        u.innerHTML = iconSVG('urgent', 22);
+        bubble.appendChild(u);
+      }
+
+      // 編集の鉛筆✏️（左上・クリックで編集パネルを開く）
+      const pencil = document.createElement('div');
+      pencil.className = 'b-edit';
+      pencil.textContent = '✏️';
+      pencil.addEventListener('mousedown', (e) => e.stopPropagation());  // ドラッグ開始させない
+      pencil.addEventListener('click', (e) => { e.stopPropagation(); openEdit(task); });
+      bubble.appendChild(pencil);
+
+      // 右下のリサイズつまみ（この泡だけ大きさを変える）
+      const resize = document.createElement('div');
+      resize.className = 'b-resize';
+      resize.addEventListener('mousedown', (e) => {
+        e.stopPropagation();           // 移動ドラッグにしない
+        startResize(bubble, task, e);
+      });
+      bubble.appendChild(resize);
+
+      // 押したらドラッグ開始の「準備」（動かすまではまだ確定しない）。
+      bubble.addEventListener('mousedown', (e) => {
+        if (e.target.closest('.b-edit') || e.target.closest('.b-resize')) return;  // つまみ類の上は無視
+        dragging = bubble;
+        moved = false;
+        startX = e.clientX; startY = e.clientY;
+        const rect = bubble.getBoundingClientRect();
+        offsetX = e.clientX - rect.left;
+        offsetY = e.clientY - rect.top;
+      });
+
+      // ダブルクリックで「完了」→ 未分類として保管庫へ。
+      bubble.addEventListener('dblclick', () => {
+        completeTask(task, null);
+      });
+
+      document.body.appendChild(bubble);
+    }
+
+    // tasks を画面に描き直す（全部消してから作り直す）。
+    function render() {
+      document.querySelectorAll('.bubble').forEach(b => b.remove());
+      tasks.forEach(task => createBubble(task));
+    }
+
+    render();  // 最初の描画
+
+    // --- 位置決め（重ならない空き場所を探す）---
+    function randomPosition() {
+      const size = 180;
+      const margin = 20;
+      const topStart = 40;
+      const maxLeft = Math.max(margin, window.innerWidth  - size - margin);
+      const maxTop  = Math.max(topStart, window.innerHeight - size - margin - 120); // 下のフォルダ帯を避ける
+      const left = margin   + Math.random() * (maxLeft - margin);
+      const top  = topStart + Math.random() * (maxTop  - topStart);
+      return { left: Math.round(left) + 'px', top: Math.round(top) + 'px' };
+    }
+
+    function freePosition() {
+      for (let attempt = 0; attempt < 30; attempt++) {
+        const pos = randomPosition();
+        const x = parseInt(pos.left);
+        const y = parseInt(pos.top);
+        const tooClose = tasks.some(t => {
+          const dx = parseInt(t.left) - x;
+          const dy = parseInt(t.top)  - y;
+          return Math.hypot(dx, dy) < 170;
+        });
+        if (!tooClose) return pos;
+      }
+      return randomPosition();
+    }
+
+    // --- タスク追加（メニューバーの小窓から main 経由で届く）---
+    function addTaskText(text, due, flags) {
+      const clean = (text || '').trim();
+      if (!clean) return;
+      flags = flags || {};
+      tasks.push({
+        id: Date.now(),
+        text: clean,
+        due: due || null,     // 締切日（任意）
+        category: null,
+        important: !!flags.important,
+        urgent: !!flags.urgent,
+        quick: !!flags.quick,
+        wish: !!flags.wish,
+        ...freePosition(),    // 重ならない位置を入れる
+      });
+      save();
+      render();
+    }
+
+    // main から「このタスクを追加して」と届いたら実行する。
+    window.bubbleAPI.onAddTask((payload) => {
+      payload = payload || {};
+      addTaskText(payload.text, payload.due, payload);
+    });
+
+    // --- タスク完了（保管庫へ移す）---
+    function completeTask(task, category) {
+      done.unshift({
+        id: task.id,
+        text: task.text,
+        due: task.due || null,
+        category: category || '未分類',
+        important: !!task.important,
+        urgent: !!task.urgent,
+        quick: !!task.quick,
+        wish: !!task.wish,
+        doneAt: Date.now(),
+      });
+      saveDone();
+      tasks = tasks.filter(t => t.id !== task.id);
+      save();
+      render();
+      if (panelOpen) renderCompleted();  // 一覧を開いていたら更新
+    }
+
+    // ===== 完了したタスク一覧パネル =====
+    function renderCompleted() {
+      const groups = [...categories, '未分類'];
+      let html = `<div class="cp-card">
+        <div class="cp-head"><h2>完了したタスク</h2><span class="cp-close" id="cpClose">×</span></div>`;
+
+      if (done.length === 0) {
+        html += `<div class="cp-empty">まだ完了したタスクはありません。</div>`;
+      } else {
+        groups.forEach(g => {
+          const items = done.filter(d => d.category === g);
+          if (items.length === 0) return;
+          html += `<div class="cp-group"><h3>${escapeHtml(g)}（${items.length}）</h3>`;
+          items.forEach(it => {
+            const icons = (it.important ? iconSVG('important', 14) : '')
+                        + (it.urgent ? iconSVG('urgent', 14) : '')
+                        + (it.quick ? iconSVG('quick', 14) : '')
+                        + (it.wish ? iconSVG('wish', 14) : '');
+            const dueHtml = it.due ? `<span class="due">〜${fmtDue(it.due)}</span> ` : '';
+            html += `<div class="cp-item">
+              <span class="t">${icons ? icons + ' ' : ''}${escapeHtml(it.text)}</span>
+              <span class="meta">${dueHtml}${fmtDoneAt(it.doneAt)}</span>
+              <button data-restore="${it.id}">戻す</button>
+              <button class="del" data-del="${it.id}">削除</button>
+            </div>`;
+          });
+          html += `</div>`;
+        });
+      }
+      html += `</div>`;
+      completedPanel.innerHTML = html;
+
+      document.getElementById('cpClose').addEventListener('click', closeCompleted);
+      completedPanel.querySelectorAll('[data-restore]').forEach(b =>
+        b.addEventListener('click', () => restoreDone(Number(b.dataset.restore))));
+      completedPanel.querySelectorAll('[data-del]').forEach(b =>
+        b.addEventListener('click', () => deleteDone(Number(b.dataset.del))));
+    }
+
+    function openCompleted() {
+      panelOpen = true;
+      renderCompleted();
+      completedPanel.classList.add('show');
+      ignoring = false;
+      window.bubbleAPI.setIgnoreMouse(false);
+    }
+    function closeCompleted() {
+      panelOpen = false;
+      completedPanel.classList.remove('show');
+      ignoring = true;
+      window.bubbleAPI.setIgnoreMouse(true);
+    }
+    completedPanel.addEventListener('mousedown', (e) => {
+      if (e.target === completedPanel) closeCompleted();
+    });
+
+    function restoreDone(id) {
+      const idx = done.findIndex(d => d.id === id);
+      if (idx === -1) return;
+      const it = done[idx];
+      done.splice(idx, 1);
+      saveDone();
+      tasks.push({
+        id: Date.now(),
+        text: it.text,
+        due: it.due || null,
+        category: it.category === '未分類' ? null : it.category,
+        important: !!it.important,
+        urgent: !!it.urgent,
+        quick: !!it.quick,
+        wish: !!it.wish,
+        ...freePosition(),
+      });
+      save();
+      render();
+      renderCompleted();
+    }
+
+    function deleteDone(id) {
+      done = done.filter(d => d.id !== id);
+      saveDone();
+      renderCompleted();
+    }
+
+    window.bubbleAPI.onShowCompleted(() => {
+      if (panelOpen) closeCompleted(); else openCompleted();
+    });
+
+    // ===== タスク編集パネル =====
+    function openEdit(task) {
+      editOpen = true;
+      const dueVal = task.due || '';
+      editPanel.innerHTML = `<div class="cp-card">
+        <div class="cp-head"><h2>タスクを編集</h2><span class="cp-close" id="epClose">×</span></div>
+        <input id="epText" class="ep-input" type="text" value="${escapeHtml(task.text)}" />
+        <div class="ep-row"><span>締切（任意）</span><input id="epDue" type="date" value="${dueVal}" /></div>
+        <div class="ep-flags">
+          <button class="ep-flag" data-flag="important">${iconSVG('important', 18)} 重要</button>
+          <button class="ep-flag" data-flag="urgent">${iconSVG('urgent', 18)} 緊急</button>
+          <button class="ep-flag" data-flag="quick">${iconSVG('quick', 18)} すぐ終わる</button>
+          <button class="ep-flag" data-flag="wish">${iconSVG('wish', 18)} 今日やりたい</button>
+        </div>
+        <div class="ep-actions"><button class="ep-save" id="epSave">保存</button></div>
+      </div>`;
+      editPanel.classList.add('show');
+      ignoring = false;
+      window.bubbleAPI.setIgnoreMouse(false);
+
+      // 今の状態をボタンに反映しつつ、押すたびに切り替え。
+      const flags = { important: !!task.important, urgent: !!task.urgent, quick: !!task.quick, wish: !!task.wish };
+      editPanel.querySelectorAll('.ep-flag').forEach(btn => {
+        const k = btn.dataset.flag;
+        btn.classList.toggle('on', flags[k]);
+        btn.addEventListener('click', () => {
+          flags[k] = !flags[k];
+          btn.classList.toggle('on', flags[k]);
+        });
+      });
+
+      document.getElementById('epClose').addEventListener('click', closeEdit);
+      document.getElementById('epSave').addEventListener('click', () => {
+        const t = document.getElementById('epText').value.trim();
+        if (t) task.text = t;                                   // 空なら変えない
+        task.due = document.getElementById('epDue').value || null;
+        task.important = flags.important;
+        task.urgent = flags.urgent;
+        task.quick = flags.quick;
+        task.wish = flags.wish;
+        save();
+        render();
+        closeEdit();
+      });
+      // テキスト欄で Enter を押したら保存（日本語変換中は無視）。
+      document.getElementById('epText').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.isComposing) document.getElementById('epSave').click();
+      });
+    }
+    function closeEdit() {
+      editOpen = false;
+      editPanel.classList.remove('show');
+      ignoring = true;
+      window.bubbleAPI.setIgnoreMouse(true);
+    }
+    editPanel.addEventListener('mousedown', (e) => {
+      if (e.target === editPanel) closeEdit();
+    });
+
+    // --- 見た目の設定（大きさ・揺れ）---
+    let settings = JSON.parse(localStorage.getItem('settings') || 'null') || { size: 180, float: true };
+
+    function applySettings(s) {
+      document.body.style.setProperty('--bubble-size', s.size + 'px');  // 大きさを反映
+      document.body.classList.toggle('no-float', !s.float);             // 揺れ ON/OFF
+    }
+    applySettings(settings);  // 起動時に反映
+
+    window.bubbleAPI.onSetSize((px) => {
+      settings.size = px;
+      localStorage.setItem('settings', JSON.stringify(settings));
+      applySettings(settings);
+    });
+    window.bubbleAPI.onSetFloat((on) => {
+      settings.float = on;
+      localStorage.setItem('settings', JSON.stringify(settings));
+      applySettings(settings);
+    });
+
+    // --- クリックすり抜け（クリックスルー）の切り替え ---
+    let ignoring = true;
+
+    function updateClickThrough(overBubble) {
+      // バブルの上でもなく、ドラッグ/リサイズ中でもなく、どのパネルも開いていないときだけ、すり抜ける。
+      const shouldIgnore = !overBubble && !dragging && !resizing && !panelOpen && !editOpen;
+      if (shouldIgnore !== ignoring) {
+        ignoring = shouldIgnore;
+        window.bubbleAPI.setIgnoreMouse(shouldIgnore);
+      }
+    }
+
+    window.addEventListener('mousemove', (e) => {
+      // リサイズ中は、右下つまみの動きに合わせて大きさを変える。
+      if (resizing) {
+        const delta = ((e.clientX - resizing.startX) + (e.clientY - resizing.startY)) / 2;
+        let s = Math.round(resizing.startSize + delta);
+        s = Math.max(MIN_SIZE, Math.min(MAX_SIZE, s));
+        resizing.task.size = s;
+        resizing.bubble.style.width  = s + 'px';
+        resizing.bubble.style.height = s + 'px';
+        updateClickThrough(true);
+        return;
+      }
+      if (dragging) {
+        const dx = e.clientX - startX, dy = e.clientY - startY;
+        // 5px以上動かしたら「ドラッグ確定」。そこで初めてフォルダを出す。
+        if (!moved && Math.hypot(dx, dy) > 5) {
+          moved = true;
+          dragging.classList.add('dragging');
+          folderBar.classList.add('show');
+        }
+        if (moved) {
+          dragging.style.left = (e.clientX - offsetX) + 'px';
+          dragging.style.top  = (e.clientY - offsetY) + 'px';
+          const f = folderAt(e.clientX, e.clientY);
+          document.querySelectorAll('.folder').forEach(el => el.classList.toggle('hover', el === f));
+        }
+      }
+      const el = document.elementFromPoint(e.clientX, e.clientY);
+      const overBubble = !!(el && el.closest('.bubble'));
+      updateClickThrough(overBubble);
+    });
+
+    window.addEventListener('mouseup', (e) => {
+      // リサイズ終了 → 新しい大きさを保存。
+      if (resizing) {
+        save();
+        resizing = null;
+        return;
+      }
+      if (!dragging) return;
+      const bubble = dragging;
+
+      if (moved) {
+        // 動かした → ドラッグ確定。フォルダの上なら完了＆仕分け。
+        const f = folderAt(e.clientX, e.clientY);
+        if (f) {
+          completeTask(bubble._task, f.dataset.category);
+        } else {
+          bubble._task.left = bubble.style.left;
+          bubble._task.top  = bubble.style.top;
+          save();
+        }
+        bubble.classList.remove('dragging');
+        folderBar.classList.remove('show');
+        document.querySelectorAll('.folder').forEach(el => el.classList.remove('hover'));
+      } else {
+        // 動かしていない → ただのクリック。この泡を選択（鉛筆・つまみを出す）。
+        selectBubble(bubble);
+      }
+
+      dragging = null;
+    });
+  </script>
+</body>
+</html>
